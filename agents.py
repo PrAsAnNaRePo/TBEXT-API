@@ -25,6 +25,7 @@ class OBBModule():
         
         # Predict bboxes on the 125 DPI image
         results = self.model.predict(img1)
+        print(results[0].boxes)
         print("PREDICTED>>>>")
         cropped_images = []
         
@@ -39,12 +40,22 @@ class OBBModule():
 
         obb_data = []
 
-        for conf, table_bbox, class_id in zip(results[0].boxes.conf.tolist(), results[0].boxes.xyxy, results[0].boxes.cls.tolist()):
+        for conf, table_bbox_xyxy, table_bbox_xywh, class_id in zip(
+            results[0].boxes.conf.tolist(),
+            results[0].boxes.xyxy,
+            results[0].boxes.xywh.tolist(),
+            results[0].boxes.cls.tolist()
+        ):
             if conf > 0.26:
-                bbox = table_bbox.tolist()
+                bbox = table_bbox_xyxy.tolist()
                 
-                # Scale the bounding box coordinates
-                x1, y1, x2, y2 = [coord * scale for coord, scale in zip(bbox[:4], [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])]
+                # Scale the bounding box coordinates (xyxy)
+                x1, y1, x2, y2 = [
+                    coord * scale for coord, scale in zip(
+                        bbox[:4],
+                        [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y]
+                    )
+                ]
                 draw = ImageDraw.Draw(img2)
                 draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
                 
@@ -65,11 +76,20 @@ class OBBModule():
                 cropped_img.save(buffered, format="PNG")
                 img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
+                # Scale the xywh coordinates
+                xc, yc, w, h = table_bbox_xywh
+                scaled_xc = xc * scale_factor_x
+                scaled_yc = yc * scale_factor_y
+                scaled_w = w * scale_factor_x
+                scaled_h = h * scale_factor_y
+
                 obb_data.append({
                     "class": tbl_cls,
                     "bbox": [x1, y1, x2, y2],
+                    "xywh": [scaled_xc, scaled_yc, scaled_w, scaled_h],
                     "cropped_img": img_str
                 })
+
             else:
                 obb_data.append({
                     "class": None,
