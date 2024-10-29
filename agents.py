@@ -55,34 +55,22 @@ class OBBModule():
 
                 draw.text((x1, y1), tbl_cls, fill="red")
 
-                # Crop the table region from the image
                 cropped_images.append([class_id, base_img.crop((x1, y1, x2, y2))])
 
-                buffered = BytesIO()
-                cropped_img = base_img.crop((x1, y1, x2, y2))
-                cropped_img.save(buffered, format="PNG")
-                img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-                # Scale the xywh coordinates
                 xc, yc, w, h = table_bbox_xywh
 
                 obb_data.append({
                     "class": tbl_cls,
-                    "bbox": [x1, y1, x2, y2],
+                    "xyxy": [x1, y1, x2, y2],
                     "xywh": [xc, yc, w, h],
-                    "cropped_img": img_str
                 })
 
             else:
                 obb_data.append({
                     "class": None,
-                    "bbox": [0, 0, 0, 0],
-                    "cropped_img": None
+                    "xyxy": [0, 0, 0, 0],
+                    "xywh": [xc, yc, w, h],
                 })
-        
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
         
         buffered = BytesIO()
         base_img.save(buffered, format="PNG")
@@ -93,6 +81,5 @@ class OBBModule():
             "actual_image": base_img_string,
             "height": base_img.height,
             "width": base_img.width,
-            "annotated_img": img_string,
             "num_tables": len(results[0].boxes.xyxy),
         }

@@ -85,8 +85,6 @@ async def categorize(
                 "category": category,
                 "bbox": obb_result if category != 'Word' else None,
                 "dpi": 275,
-                "img_height": height,
-                "img_width": width
             })
 
     return response
