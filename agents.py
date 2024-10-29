@@ -16,27 +16,20 @@ class OBBModule():
         self.model.overrides['agnostic_nms'] = False  # NMS class-agnostic
         self.model.overrides['max_det'] = 1000  # maximum number of detections per image
 
-    def detect_bbox(self, img1, img2=None):
+    def detect_bbox(self, img):
         print("###########################")
         print("RUNNING>>>>")
         print("###########################")
-        if img1.mode != "RGB":
-            img1 = img1.convert("RGB")
+        if img.mode != "RGB":
+            img = img.convert("RGB")
         
         # Predict bboxes on the 125 DPI image
-        results = self.model.predict(img1)
+        results = self.model.predict(img)
         print(results[0].boxes)
         print("PREDICTED>>>>")
         cropped_images = []
         
-        if img2 is not None:
-            # Calculate scaling factor from 125 DPI to 150 DPI
-            scale_factor_x = img2.width / img1.width
-            scale_factor_y = img2.height / img1.height
-        else:
-            img2 = img1
-            scale_factor_x = scale_factor_y = 1
-        base_img = img2.copy()
+        base_img = img.copy()
 
         obb_data = []
 
@@ -49,14 +42,8 @@ class OBBModule():
             if conf > 0.26:
                 bbox = table_bbox_xyxy.tolist()
                 
-                # Scale the bounding box coordinates (xyxy)
-                x1, y1, x2, y2 = [
-                    coord * scale for coord, scale in zip(
-                        bbox[:4],
-                        [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y]
-                    )
-                ]
-                draw = ImageDraw.Draw(img2)
+                x1, y1, x2, y2 = bbox
+                draw = ImageDraw.Draw(img)
                 draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
                 
                 if class_id == 0:
@@ -78,15 +65,11 @@ class OBBModule():
 
                 # Scale the xywh coordinates
                 xc, yc, w, h = table_bbox_xywh
-                scaled_xc = xc * scale_factor_x
-                scaled_yc = yc * scale_factor_y
-                scaled_w = w * scale_factor_x
-                scaled_h = h * scale_factor_y
 
                 obb_data.append({
                     "class": tbl_cls,
                     "bbox": [x1, y1, x2, y2],
-                    "xywh": [scaled_xc, scaled_yc, scaled_w, scaled_h],
+                    "xywh": [xc, yc, w, h],
                     "cropped_img": img_str
                 })
 
@@ -98,8 +81,8 @@ class OBBModule():
                 })
         
         buffered = BytesIO()
-        img2.save(buffered, format="PNG")
-        img2_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        img.save(buffered, format="PNG")
+        img_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
         
         buffered = BytesIO()
         base_img.save(buffered, format="PNG")
@@ -110,6 +93,6 @@ class OBBModule():
             "actual_image": base_img_string,
             "height": base_img.height,
             "width": base_img.width,
-            "annotated_img": img2_string,
+            "annotated_img": img_string,
             "num_tables": len(results[0].boxes.xyxy),
         }

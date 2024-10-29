@@ -53,8 +53,9 @@ async def categorize(
             pix = page.to_image()
             pix.save("img.png")
             img = Image.open('img.png')
-            img1, img2 = page.to_image().original, page.to_image(resolution=275).original
-            obb_result = obb.detect_bbox(img1, img2)
+            # img1, img2 = page.to_image().original, page.to_image(resolution=275).original
+            img = page.to_image().original
+            obb_result = obb.detect_bbox(img)
 
             if obb_result['num_tables'] > 0:
                 width, height = page.width, page.height
