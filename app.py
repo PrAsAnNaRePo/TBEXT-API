@@ -21,7 +21,6 @@ app.add_middleware(
 
 obb = OBBModule()
 
-
 def get_pil_image(image):
     return Image.open(io.BytesIO(base64.b64decode(image)))
 
@@ -30,20 +29,20 @@ def is_table_empty(table):
 
 @app.post("/categorize")
 async def categorize(
-    selected_pages: List[str] = Form(...),
+    selected_pages: str = Form(...),
     pdf_file: UploadFile = File(...)
 ):
     try:
         pdf_bytes = await pdf_file.read()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Error reading the PDF file")
-    print(selected_pages, pdf_file, "pdf_bytes", pdf_bytes)
-    # selected_pages_ = []
-    # for i in selected_pages:
-    #     selected_pages_.append(int(i))
+    
+    selected_pages_ = []
+    for i in selected_pages.split(","):
+        selected_pages_.append(int(i))
 
-    # selected_pages = selected_pages_
-    selected_pages = [200, 201]
+    selected_pages = selected_pages_
+
     response = []
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for i, page_num in enumerate(selected_pages):
@@ -101,7 +100,7 @@ async def set_dpi(
         pdf_bytes = await pdf_file.read()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Error reading the PDF file")
-    
+
     with pdfplumber.open(io.BytesIO(pdf_bytes), pages=[page_num]) as pdf:
         page = pdf.pages[0]
         pix = page.to_image(resolution=dpi)
@@ -113,6 +112,7 @@ async def set_dpi(
         img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
         
         return {"image": img_str, "dpi": dpi, "height": img.height, "width": img.width}
+
 
 # @app.post("/extract")
 # async def extract(
