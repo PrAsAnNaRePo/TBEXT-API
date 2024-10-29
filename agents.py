@@ -102,12 +102,14 @@ class OBBModule():
         img2_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
         
         buffered = BytesIO()
-        img1.save(buffered, format="PNG")
-        img1_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        base_img.save(buffered, format="PNG")
+        base_img_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
         
         return {
             "bbox_data": obb_data,
-            "actual_image": img1_string,
+            "actual_image": base_img_string,
+            "height": base_img.height,
+            "width": base_img.width,
             "annotated_img": img2_string,
             "num_tables": len(results[0].boxes.xyxy),
         }
