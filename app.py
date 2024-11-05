@@ -117,14 +117,24 @@ async def categorize(
         f.write(str(response))
     return response
 
-@app.get("/save_img")
-def save_img(image_base64: str = None):
-    # saves the given base64 image
-    if not os.path.exists("obb-training-data"):
-        os.makedirs("obb-training-data")
-    img = get_pil_image(image_base64)
-    img.save("obb-training-data/test.png")
-    return
+@app.get("/save_m_obb")
+def save_m_obb(response:str = Form(...)):
+    response = json.loads(response)
+    save_file = "obb-traindata.json"
+    if os.path.exists(save_file):
+        with open(save_file, "r") as json_file:
+            existing_data = json.load(json_file)
+    else:
+        existing_data = []
+    existing_data.append({
+        "file_name": response["file_name"],
+        "pg_no": response["pg_no"],
+        "category": response["category"],
+    })
+    with open(save_file, "w") as json_file:
+        json.dump(existing_data, json_file)
+
+    return {"message": "Data saved successfully"}
 
 @app.post("/set_dpi")
 async def set_dpi(
