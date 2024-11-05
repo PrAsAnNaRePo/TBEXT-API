@@ -117,7 +117,7 @@ async def categorize(
         f.write(str(response))
     return response
 
-@app.get("/save_m_obb")
+@app.post("/save_m_obb")
 def save_m_obb(
     file_name: str = Form(...),
     pg_no: int = Form(...),
