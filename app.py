@@ -40,6 +40,22 @@ def get_pil_image(image):
 def is_table_empty(table):
     return not any(row for row in table if any(cell and cell.strip() for cell in row))
 
+def parse_numbers(s: str):
+    parts = s.split(',')
+    numbers = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if '-' in part:
+            start_str, end_str = part.split('-')
+            start = int(start_str.strip())
+            end = int(end_str.strip())
+            numbers.extend(range(start, end + 1))
+        else:
+            numbers.append(int(part))
+    return numbers
+
 @app.post("/categorize")
 async def categorize(
     selected_pages: str = Form(...), # this should a string like: '2,3,5-8'
@@ -50,10 +66,7 @@ async def categorize(
     except Exception as e:
         raise HTTPException(status_code=400, detail="Error reading the PDF file")
     
-    selected_pages_list = []
-    for i in selected_pages.split(","):
-        selected_pages_list.append(int(i))
-
+    selected_pages_list = parse_numbers(selected_pages)
 
     response = []
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -103,6 +116,15 @@ async def categorize(
     with open("cat_bbox.txt", 'w') as f:
         f.write(str(response))
     return response
+
+@app.get("/save_img")
+def save_img(image_base64: str = None):
+    # saves the given base64 image
+    if not os.path.exists("obb-training-data"):
+        os.makedirs("obb-training-data")
+    img = get_pil_image(image_base64)
+    img.save("obb-training-data/test.png")
+    return
 
 @app.post("/set_dpi")
 async def set_dpi(
