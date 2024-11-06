@@ -1,7 +1,9 @@
+from datetime import datetime
 import json
 import os
 import shutil
 import tempfile
+import time
 from fastapi import Body, FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 import pandas as pd
@@ -18,6 +20,8 @@ from utils import convert_htm_to_excel
 from openpyxl.drawing.image import Image as ExcelImage
 from dotenv import load_dotenv
 from starlette.background import BackgroundTask
+import gspread
+from google.oauth2.service_account import Credentials
 
 load_dotenv()
 
@@ -30,6 +34,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+scope = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
+
+creds = Credentials.from_service_account_file("gsheet-logging-882a049ab3f9.json", scopes=scope)
+client = gspread.authorize(creds)
+
+id = '1lbBg7m9xUKPgs7QlgSeUaovPCrGnDuAiPAnrq51q-mQ'
+sheet = client.open_by_key(id).worksheet("Gsheet-auto-v4")
 
 agent = TOCRAgent(system_prompt=open("./system_prompt.txt", 'r').read())
 obb = OBBModule()
@@ -187,7 +202,26 @@ async def set_dpi(
             }
     except IndexError:
         raise HTTPException(status_code=400, detail=f"Page number {page_num} out of range")
-        
+
+def calculate_cost(input_tokens, output_tokens):
+    """
+    Calculate the cost for using Claude 3.5 Sonnet based on input and output tokens.
+    
+    :param input_tokens: Number of input tokens
+    :param output_tokens: Number of output tokens
+    :return: Total cost in USD
+    """
+    # Rates per million tokens
+    INPUT_RATE = 3  # $3 per million input tokens
+    OUTPUT_RATE = 15  # $15 per million output tokens
+    
+    # Convert to millions of tokens and calculate cost
+    input_cost = (input_tokens / 1_000_000) * INPUT_RATE
+    output_cost = (output_tokens / 1_000_000) * OUTPUT_RATE
+    
+    total_cost = input_cost + output_cost
+    
+    return round(total_cost, 2)
 
 @app.post("/extract")
 async def extract(
@@ -199,6 +233,22 @@ async def extract(
         f.write(str(data))
     print("data: ", data)
 
+    start_time_whole_process = time.time()
+    
+    selected_pgs = []
+    a3_pages = []
+    scanned_pages = []
+    word_pages = []
+    edge_case_pages = []
+    dpi_list = []
+    a3_count = 0
+    scanned_count = 0
+    word_count = 0
+    edge_case_count = 0
+    table_count = 0
+    tok_in = 0
+    tok_out = 0
+    
     try:
         pdf_path = os.path.join(temp_dir, pdf_file.filename)
         contents = await pdf_file.read()
@@ -215,6 +265,8 @@ async def extract(
                 category = page['category']
                 dpi = page['dpi']
 
+                dpi_list.append(dpi)
+                selected_pgs.append(pg_no)
                 page_index = pg_no - 1  # Adjust for zero-based indexing
                 if page_index < 0 or page_index >= len(pdf.pages):
                     raise HTTPException(status_code=400, detail=f"Page number {pg_no} out of range for the provided PDF")
@@ -225,6 +277,13 @@ async def extract(
                 # pg_image = Image.open(img_path)#hanged
         
                 if category in ['A3', 'Scanned']:
+                    if category == 'A3':
+                        a3_count += 1
+                        a3_pages.append(pg_no)
+                    else:
+                        scanned_count += 1
+                        scanned_pages.append(pg_no)
+                    
                     excel_file = os.path.join(temp_dir, f'{os.path.splitext(pdf_file.filename)[0]}_page-{pg_no}.xlsx')
                     with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
                         start_row = 0
@@ -242,8 +301,10 @@ async def extract(
                             img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
                             
                             html_table_content, usage = agent.extract_table(img_base64)
-        
+                            tok_in += int(usage.input_tokens)
+                            tok_out += int(usage.output_tokens)
                             for gen_table in html_table_content:
+                                table_count+=1
                                 gen_table = "<table" + gen_table
                                 tbl_count += 1
         
@@ -272,6 +333,8 @@ async def extract(
                                 })
                         
                 elif category == 'Word':
+                    word_count+=1
+                    word_pages.append(pg_no)
                     excel_file = os.path.join(temp_dir, f'{os.path.splitext(pdf_file.filename)[0]}_page-{pg_no}.xlsx')
                     pl_page = pdf.pages[pg_no-1]
 
@@ -280,6 +343,7 @@ async def extract(
                         start_row = 0
                         tbl_count = 0
                         for tbl_no, table in enumerate(extracted_tables):
+                            table_count+=1
                             tbl_count += 1
                             table_df = pd.DataFrame(table[1:], columns=table[0])
         
@@ -299,10 +363,12 @@ async def extract(
                                 })
                         
                 else:
+                    edge_case_count+=1
+                    edge_case_pages.append(pg_no)
                     print(f"Skipping page {pg_no} with invalid category '{category}'.")
                 
         if excel_files_info:
-            combined_excel_path = os.path.join(temp_dir, f'{pdf_file.filename[:-4]}_combined.xlsx')
+            combined_excel_path = os.path.join(temp_dir, f'{pdf_file.filename[:-4]}_combined_0611_part4.xlsx')
             img_added_pg_no = []
             with pd.ExcelWriter(combined_excel_path, engine='openpyxl') as writer:
                 for file_info in excel_files_info:
@@ -322,22 +388,44 @@ async def extract(
                         img_buffer.seek(0)
                         img_for_excel = ExcelImage(img_buffer)
         
+            
                         worksheet.add_image(img_for_excel, "R1")
+                        
         else:
             # return with 400 status code with message saying no tables found
             shutil.rmtree(temp_dir)
             raise HTTPException(status_code=400, detail="no tables")
 
-        def cleanup():
-            shutil.rmtree(temp_dir)
+        new_row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            pdf_file.filename,
+            ', '.join(map(str, selected_pgs)),
+            len(selected_pgs),
+            table_count,
+            a3_count,
+            'NA' if not a3_pages else ', '.join(map(str, a3_pages)),
+            word_count,
+            'NA' if not word_pages else ', '.join(map(str, word_pages)),
+            scanned_count,
+            'NA' if not scanned_pages else ', '.join(map(str, scanned_pages)),
+            edge_case_count,
+            'NA' if not edge_case_pages else ', '.join(map(str, edge_case_pages)),
+            str(time.time() - start_time_whole_process),
+            tok_in,
+            tok_out,
+            calculate_cost(tok_in, tok_out),
+            ', '.join(map(str, dpi_list))
+        ]
+        sheet.append_row(new_row, value_input_option='USER_ENTERED')
+        # def cleanup():
+        #     shutil.rmtree(temp_dir)
 
         return FileResponse(
             path=combined_excel_path,
             filename=f'{pdf_file.filename[:-4]}_combined.xlsx',
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            background=BackgroundTask(cleanup)
+            # background=BackgroundTask(cleanup)
         )
 
     except Exception as e:
-        shutil.rmtree(temp_dir)
         raise e
