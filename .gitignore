@@ -1,1 +1,6 @@
+__pycache__
 .env
+
+*.png
+*.json
+*_bbox.txt

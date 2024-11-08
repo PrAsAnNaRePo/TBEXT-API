@@ -1,3 +1,6 @@
+from datetime import datetime
+import json
+import os
 import re
 import anthropic
 from ultralyticsplus import YOLO
@@ -84,7 +87,7 @@ class TOCRAgent:
         code_blocks = re.findall(r'<final>\n<table(.*?)</final>', content, re.DOTALL)
         return code_blocks
 
-    def extract_table(self, base64_image):
+    def extract_table(self, base64_image, file_name, page_num):
         msg = []
         msg.append(
             {
@@ -116,5 +119,28 @@ class TOCRAgent:
             },
             temperature=0,
         )
+
+        extracted_data = {
+            "time": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+            "file_name": [file_name],
+            "page_num": [str(page_num)],
+            "image": [base64_image],
+            "response": [response.content[0].text]
+        }
+
+        if os.path.exists("data.json"):
+            with open("data.json", "r") as json_file:
+                existing_data = json.load(json_file)
+            existing_data["time"].extend(extracted_data["time"])
+            existing_data["file_name"].extend(extracted_data["file_name"])
+            existing_data["page_num"].extend(extracted_data["page_num"])
+            existing_data["image"].extend(extracted_data["image"])
+            existing_data["response"].extend(extracted_data["response"])
+        else:
+            existing_data = extracted_data
+
+        with open("data.json", "w") as json_file:
+            json.dump(existing_data, json_file, indent=4)
+
         print(response.content[0].text)
         return self.extract_code(response.content[0].text), response.usage

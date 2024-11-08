@@ -300,7 +300,7 @@ async def extract(
                             cropped_img.save(img_buffer, format="PNG")
                             img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
                             
-                            html_table_content, usage = agent.extract_table(img_base64)
+                            html_table_content, usage = agent.extract_table(img_base64, pdf_file.filename, pg_no)
                             tok_in += int(usage.input_tokens)
                             tok_out += int(usage.output_tokens)
                             for gen_table in html_table_content:
