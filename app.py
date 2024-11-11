@@ -115,11 +115,11 @@ async def categorize(
             else:
                 category = "Edge Case"
 
-                if category == 'Word':
-                    for cls_id, cropped_img in obb_result.get('cropped_images', []):
-                     if cls_id == 2:
-                         category = "Scanned"
-                         break
+            if category == 'Word':
+                for cls_id, cropped_img in obb_result.get('cropped_images', []):
+                    if cls_id == 2:
+                        category = "Scanned"
+                        break
 
             response.append({
                 "page_num": page_num,
