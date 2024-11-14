@@ -74,6 +74,7 @@ NOTE:
 - Do not include any comments in html code.
 - DO not include <html> tag in the actual html table, just start with <table>
 - DO not use <caption> tag in the html table.
+- DO not generate redundant values, make sure you only create each column and values only once as per the original table in the image.
 - No need of styling the html table.
 - Please ensure that you only use <final> tags for the final reviewed table. That has every details inside it.
 - Make sure you use the final tag correctly, use it **Only once**, its very sensitive...
