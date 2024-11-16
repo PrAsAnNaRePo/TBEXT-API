@@ -185,7 +185,9 @@ async def set_dpi(
         
         box_data = []
         for bbox in bboxes:
-            prev_bbox = bbox
+            # prev_bbox = bbox
+            xyxy = bbox.get('xyxy')
+            xywh = bbox.get('xywh')
             with pdfplumber.open(io.BytesIO(pdf_bytes), pages=[page_num]) as pdf:
                 page = pdf.pages[0]
                 img1 = page.to_image(resolution=275).original
@@ -195,22 +197,34 @@ async def set_dpi(
                 scale_factor_y = img2.height / img1.height
 
                 x1, y1, x2, y2 = [
-                    coord * scale for coord, scale in zip(prev_bbox[:4], [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])
+                    coord * scale for coord, scale in zip(xyxy[:4], [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])
+                ]
+
+                x, y, w, h = [
+                    coord * scale for coord, scale in zip(xywh, [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])
                 ]
 
                 buffered = BytesIO()
                 img2.save(buffered, format="PNG")
                 img2_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-                box_data.append([x1, y1, x2, y2])
-
+                box_data.append(
+                    {
+                        "xyxy": [x1, y1, x2, y2],
+                        "xywh": [x, y, w, h]
+                    }
+                )
+        
         results.append({
             "page_num": page_num,
+            "bbox": {
+                "bbox_data": box_data,
+                "actual_image": img2_string,
+                "height": img2.height,
+                "width": img2.width,
+                "num_tables": len(bboxes)
+            },
             "dpi": dpi,
-            "bbox": box_data,
-            "actual_image": img2_string,
-            "height": img2.height,
-            "width": img2.width
         })
     return results
 
