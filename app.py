@@ -207,8 +207,10 @@ async def set_dpi(
         results.append({
             "page_num": page_num,
             "dpi": dpi,
-            "m_bbox": box_data,
-            "m_img": img2_string
+            "bbox": box_data,
+            "actual_image": img2_string,
+            "height": img2.height,
+            "width": img2.width
         })
     return results
 
