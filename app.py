@@ -162,46 +162,55 @@ def save_m_obb(
 @app.post("/set_dpi")
 async def set_dpi(
     dpi: int = Form(...),
-    bbox: str = Form(...),
-    page_num: int = Form(...),
+    pages: str = Form(...),
     pdf_file: UploadFile = File(...)
 ):
+    try:
+        pages_data = json.loads(pages)
+        print(">>> ", pages_data)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid pages JSON data")
+
     try:
         pdf_bytes = await pdf_file.read()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Error reading the PDF file")
-    
-    print(">>>>>", bbox)
-    prev_bbox = [float(coord) for coord in bbox.split(",")]
-    page_index = page_num - 1
-    if page_index < 0:
-        raise HTTPException(status_code=400, detail=f"Invalid page number: {page_num}")
 
-    try:
-        with pdfplumber.open(io.BytesIO(pdf_bytes), pages=[page_index]) as pdf:
-            if len(pdf.pages) == 0:
-                raise HTTPException(status_code=400, detail=f"Page number {page_num} out of range")
-            page = pdf.pages[0]
-            img1 = page.to_image(resolution=275).original
-            img2 = page.to_image(resolution=dpi).original
-            
-            scale_factor_x = img2.width / img1.width
-            scale_factor_y = img2.height / img1.height
+    results = []
+    for page_info in pages_data:
+        page_num = page_info.get('page_num')
+        bboxes = page_info.get('bbox')
+        if page_num is None or bboxes is None:
+            raise HTTPException(status_code=400, detail="Each page must have 'page_num' and 'bbox'")
+        
+        box_data = []
+        for bbox in bboxes:
+            prev_bbox = bbox
+            with pdfplumber.open(io.BytesIO(pdf_bytes), pages=[page_num]) as pdf:
+                page = pdf.pages[0]
+                img1 = page.to_image(resolution=275).original
+                img2 = page.to_image(resolution=dpi).original
 
-            x1, y1, x2, y2 = [coord * scale for coord, scale in zip(prev_bbox[:4], [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])]
-            
-            buffered = BytesIO()
-            img2.save(buffered, format="PNG")
-            img2_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                scale_factor_x = img2.width / img1.width
+                scale_factor_y = img2.height / img1.height
 
-            return {
-                "page_num": page_num,
-                "dpi": dpi,
-                "m_bbox": [x1, y1, x2, y2],
-                "m_img": img2_string
-            }
-    except IndexError:
-        raise HTTPException(status_code=400, detail=f"Page number {page_num} out of range")
+                x1, y1, x2, y2 = [
+                    coord * scale for coord, scale in zip(prev_bbox[:4], [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])
+                ]
+
+                buffered = BytesIO()
+                img2.save(buffered, format="PNG")
+                img2_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+                box_data.append([x1, y1, x2, y2])
+
+        results.append({
+            "page_num": page_num,
+            "dpi": dpi,
+            "m_bbox": box_data,
+            "m_img": img2_string
+        })
+    return results
 
 def calculate_cost(input_tokens, output_tokens):
     """
