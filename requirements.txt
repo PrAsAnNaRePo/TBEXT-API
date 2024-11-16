@@ -1,0 +1,10 @@
+pdfplumber
+html2excel
+pandas
+anthropic
+ultralyticsplus
+Pillow
+fastapi
+pydantic
+openpyxl
+python-dotenv
