@@ -188,6 +188,7 @@ async def set_dpi(
             # prev_bbox = bbox
             xyxy = bbox.get('xyxy')
             xywh = bbox.get('xywh')
+            class_id =bbox.get('class_id')
             with pdfplumber.open(io.BytesIO(pdf_bytes), pages=[page_num]) as pdf:
                 page = pdf.pages[0]
                 img1 = page.to_image(resolution=275).original
@@ -211,7 +212,8 @@ async def set_dpi(
                 box_data.append(
                     {
                         "xyxy": [x1, y1, x2, y2],
-                        "xywh": [x, y, w, h]
+                        "xywh": [x, y, w, h],
+                        "class_id": class_id#added
                     }
                 )
         
@@ -313,9 +315,9 @@ async def extract(
                     with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
                         start_row = 0
                         tbl_count = 0
-                        for tables in page['tables']:
+                        for tables in page['bbox']:
                             class_id = tables['class_id']
-                            bbox = tables['bbox']
+                            bbox = tables['xyxy']
                             print(">>>>bbox: ", bbox)
                             cropped_img = pg_image.crop(bbox)
                             if class_id == 2:
