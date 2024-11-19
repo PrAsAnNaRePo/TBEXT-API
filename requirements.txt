@@ -10,3 +10,4 @@ openpyxl
 python-dotenv
 uvicorn
 gspread
+python-multipart
