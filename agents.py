@@ -3,78 +3,168 @@ import json
 import os
 import re
 import anthropic
+import cv2
+import numpy as np
 from ultralyticsplus import YOLO
 from PIL import ImageDraw 
 from io import BytesIO
 import base64
+import onnxruntime
 
-class OBBModule():
-    def __init__(self) -> None:
-        # classifiable model are :-
-        #   - yolov11x-2c.pt
-        #   - yolov8n-2c-v2.pt
-        #   - yolov8n-2c.pt
-        #self.model = YOLO('C:\\Users\\LAU\\Downloads\\FASTAPI3\\FASTAPI\\18102024.pt').to('cpu')
-        self.model = YOLO("21102024.pt").to('cpu')
-        # set model parameters
-        self.model.overrides['conf'] = 0.35  # NMS confidence threshold
-        self.model.overrides['iou'] = 0.45  # NMS IoU threshold
-        self.model.overrides['agnostic_nms'] = False  # NMS class-agnostic
-        self.model.overrides['max_det'] = 1000  # maximum number of detections per image
-
-    def detect_bbox(self,img1, img2=None):
-        if img1.mode != "RGB":
-            img1 = img1.convert("RGB")
+class OBBModule: 
+    def __init__(self, model_path, class_labels=None):
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model path not found: {model_path}")
         
-        results = self.model.predict(img1)
-        print(results[0].boxes.xyxy)
+        try:
+            self.session = onnxruntime.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+            print(f"Successfully loaded ONNX model from {model_path}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load the ONNX model: {e}")
+        
+        model_inputs = self.session.get_inputs()
+        print("Model Inputs:", model_inputs)
+        
+        self.input_name = model_inputs[0].name
+        self.input_shape = model_inputs[0].shape  # [batch_size, channels, height, width]
+        self.input_height = self.input_shape[2]
+        self.input_width = self.input_shape[3]
 
-        if img2 is not None:
-            scale_factor_x = img2.width / img1.width
-            scale_factor_y = img2.height / img1.height
+        self.classes = class_labels if class_labels else {0: 'tables', 1: 'tilted', 2: 'empty'}
+
+    def preprocess(self, image):
+        resized = cv2.resize(image, (self.input_width, self.input_height))
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        normalized = rgb.astype(np.float32) / 255.0
+        transposed = normalized.transpose(2, 0, 1)  # CHW format
+        batched = np.expand_dims(transposed, axis=0)  # Add batch dimension
+        return batched
+
+    def detect_bbox(self, image1, image2=None, confidence_threshold=0.35, iou_threshold=0.45):
+        # Convert PIL Image to OpenCV format
+        frame = cv2.cvtColor(np.array(image1), cv2.COLOR_RGB2BGR)
+        original_height, original_width = frame.shape[:2]
+        
+        if image2 is not None:
+            img2 = cv2.cvtColor(np.array(image2), cv2.COLOR_RGB2BGR)        
+            target_height, target_width = img2.shape[:2]
+            scale_factor_x = target_width / original_width
+            scale_factor_y = target_height / original_height
+            print(f"Scaling factors - X: {scale_factor_x}, Y: {scale_factor_y}") 
         else:
-            img2 = img1
+            img2 = frame.copy()
+            target_height, target_width = original_height, original_width
             scale_factor_x = scale_factor_y = 1
+            print("No img2 provided. Using img1 for annotations.")   
+        
+        preprocessed = self.preprocess(frame)
+        print(f"Preprocessed shape: {preprocessed.shape}")
+        
+        outputs = self.session.run(None, {self.input_name: preprocessed})
+        print(f"Model outputs: {outputs}") 
+        
+        # Postprocess the outputs to get bounding boxes
+        obb_data = self.postprocess(outputs, img2, confidence_threshold, iou_threshold, scale_factor_x, scale_factor_y)
+
+        _, buffer = cv2.imencode('.png', img2)
+        base_img_string = base64.b64encode(buffer).decode('utf-8')
+
+        response = {
+            "bbox_data": obb_data,
+            "actual_image": base_img_string,
+            "height": int(img2.shape[0]),
+            "width": int(img2.shape[1]),
+            "num_tables": int(len(obb_data)),
+        }
+        return response
+                
+    # def draw_detections(self, img, box, score, class_id):
+    #     x1, y1, w, h = box
+    #     color = (0, 0, 255)  # Red color for bounding boxes
+    #     cv2.rectangle(img, (x1, y1), (x1 + w, y1 + h), color, 2)
+    #     # label = f"{self.classes.get(class_id, 'Unknown')}:{score:.2f}"
+    #     # cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+    
+    def postprocess(self, outputs, img2, confidence_threshold, iou_threshold, scale_factor_x, scale_factor_y):
+        img_height, img_width = img2.shape[:2]
+        output_array = np.squeeze(outputs[0])
+
+        if output_array.shape[0] < output_array.shape[1]:
+            output_array = output_array.transpose()
+
+        num_detections = output_array.shape[0]
+        print(f"Number of detections before NMS: {num_detections}")  
+
+        boxes = []
+        scores = []
+        class_ids = []
+
+        # scaled based on model input size to img2
+        x_factor = img_width / self.input_width
+        y_factor = img_height / self.input_height
+
+        for i in range(num_detections):
+            row = output_array[i]
+            objectness = row[4]
+            class_scores = row[5:]
+            class_id = int(np.argmax(class_scores)) 
+            confidence = float(class_scores[class_id]) 
+
+            if confidence >= confidence_threshold:
+                x, y, width, height = row[0], row[1], row[2], row[3]
+                x1 = int((x - width / 2) * x_factor)
+                y1 = int((y - height / 2) * y_factor)
+                w = int(width * x_factor)
+                h = int(height * y_factor)
+                
+                boxes.append([x1, y1, w, h])
+                scores.append(float(confidence))
+                class_ids.append(int(class_id))
+                
+                print(f"Initial bbox {i}: Class ID={class_id}, Confidence={confidence}, Box={x1, y1, w, h}")  
+
+        indices = cv2.dnn.NMSBoxes(boxes, scores, confidence_threshold, iou_threshold)
+        print(f"Indices after NMS: {indices}")  
 
         obb_data = []
 
-        for conf, table_bbox_xyxy, table_bbox_xywh, class_id in zip(
-            results[0].boxes.conf.tolist(),
-            results[0].boxes.xyxy,
-            results[0].boxes.xywh.tolist(),
-            results[0].boxes.cls.tolist()
-        ):
-            # if conf > 0.26:
-            bbox = table_bbox_xyxy.tolist()
+        if len(indices) > 0:
+            if isinstance(indices[0], (list, tuple, np.ndarray)):
+                indices = [i[0] for i in indices]
+            else:
+                indices = list(indices)
             
-            x1, y1, x2, y2 = [coord * scale for coord, scale in zip(bbox[:4], [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])]
-            x, y, w, h = table_bbox_xywh
-            x, y, w, h = [coord * scale for coord, scale in zip([x, y, w, h], [scale_factor_x, scale_factor_y, scale_factor_x, scale_factor_y])]
-            obb_data.append({
-                "class_id": class_id,
-                "xyxy": [x1, y1, x2, y2],
-                "xywh": [x, y, w, h]
-            })
-            print(">>>>>> initial bbox", [x1, y1, x2, y2])
+            for idx in indices:
+                box = boxes[idx]
+                class_id = class_ids[idx]
+                confidence = scores[idx]
+                
+                x1, y1, w, h = box
+                x2 = x1 + w
+                y2 = y1 + h
+                #if bbox coordinates -out of img boundary
+                # x1 = max(0, x1)
+                # y1 = max(0, y1)
+                # x2 = min(x2, img_width)
+                # y2 = min(y2, img_height)
+    
+                x = x1 + w / 2
+                y = y1 + h / 2
 
-            # else:
-            #     obb_data.append({
-            #         "class_id": None,
-            #         "xyxy": None,
-            #         "xywh": None
-            #     })
-        
-        buffered = BytesIO()
-        img2.save(buffered, format="PNG")
-        base_img_string = base64.b64encode(buffered.getvalue()).decode('utf-8')
-        
-        return {
-            "bbox_data": obb_data,
-            "actual_image": base_img_string,
-            "height": img2.height,
-            "width": img2.width,
-            "num_tables": len(results[0].boxes.xyxy),
-        }
+                obb_data.append({
+                    "class_id": class_id,
+                    "xyxy": [x1, y1, x2, y2],
+                    "xywh": [x, y, w, h]
+                })
+
+                
+                # self.draw_detections(img2, box, confidence, class_id)
+                print(f"Final bbox: class_id={class_id}, confidence={confidence}, bbox={x1, y1, x2, y2}")  
+        else:
+            print("No detections after NMS.")
+
+        print(f"Number of detections after NMS: {len(obb_data)}")
+        return obb_data
 
 class TOCRAgent:
     def __init__(self, system_prompt) -> None:

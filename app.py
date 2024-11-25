@@ -47,7 +47,7 @@ id = '1lbBg7m9xUKPgs7QlgSeUaovPCrGnDuAiPAnrq51q-mQ'
 sheet = client.open_by_key(id).worksheet("Gsheet-auto-v4")
 
 agent = TOCRAgent(system_prompt=open("./system_prompt.txt", 'r').read())
-obb = OBBModule()
+obb = OBBModule('./dynamic_quantized_21.onnx')
 
 def get_pil_image(image):
     return Image.open(io.BytesIO(base64.b64decode(image)))
@@ -128,8 +128,6 @@ async def categorize(
                 "bbox": obb_result,
                 "dpi": 275,
             })
-    with open("cat_bbox.txt", 'w') as f:
-        f.write(str(response))
     return response
 
 @app.post("/save_m_obb")
@@ -256,8 +254,6 @@ async def extract(
     data: str = Form(...),
 ):
     temp_dir = tempfile.mkdtemp()
-    with open("ext_bbox.txt", 'w') as f:
-        f.write(str(data))
     print("data: ", data)
 
     start_time_whole_process = time.time()
