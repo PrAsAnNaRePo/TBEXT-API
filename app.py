@@ -117,9 +117,8 @@ async def categorize(
         f.write(str(response))
     return response
 
-@app.get("/save_m_obb")
-def save_m_obb(response:str = Form(...)):
-    response = json.loads(response)
+@app.post("/save_m_obb")
+def save_m_obb(file_name: str= Form(...), pg_no: int= Form(...), category: str= Form(...)):
     save_file = "obb-traindata.json"
     if os.path.exists(save_file):
         with open(save_file, "r") as json_file:
@@ -127,9 +126,9 @@ def save_m_obb(response:str = Form(...)):
     else:
         existing_data = []
     existing_data.append({
-        "file_name": response["file_name"],
-        "pg_no": response["pg_no"],
-        "category": response["category"],
+        "file_name": file_name,
+        "pg_no": pg_no,
+        "category": category,
     })
     with open(save_file, "w") as json_file:
         json.dump(existing_data, json_file)
